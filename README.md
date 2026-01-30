@@ -62,18 +62,18 @@ THE MATH:
 
 ## 🚀 Live Demo
 
-**Sandbox URL:** https://3000-iwis1rqzgsl4w99obetjk-5185f4aa.sandbox.novita.ai
+**Sandbox URL:** https://3000-i7xmse1enr65ml1esci5y-cc2fbc16.sandbox.novita.ai
 
 ### Quick Test:
 ```bash
 # Get dashboard stats
-curl https://3000-iwis1rqzgsl4w99obetjk-5185f4aa.sandbox.novita.ai/api/stats
+curl https://3000-i7xmse1enr65ml1esci5y-cc2fbc16.sandbox.novita.ai/api/stats
 
 # Get all accounts
-curl https://3000-iwis1rqzgsl4w99obetjk-5185f4aa.sandbox.novita.ai/api/accounts
+curl https://3000-i7xmse1enr65ml1esci5y-cc2fbc16.sandbox.novita.ai/api/accounts
 
 # Get all projects
-curl https://3000-iwis1rqzgsl4w99obetjk-5185f4aa.sandbox.novita.ai/api/projects
+curl https://3000-i7xmse1enr65ml1esci5y-cc2fbc16.sandbox.novita.ai/api/projects
 ```
 
 ---
