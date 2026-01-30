@@ -62,18 +62,27 @@ THE MATH:
 
 ## 🚀 Live Demo
 
-**Sandbox URL:** https://3000-i7xmse1enr65ml1esci5y-cc2fbc16.sandbox.novita.ai
+### 🌐 Production Deployment (Cloudflare Pages)
+
+**Primary URL:** https://paas-ai-orchestration.pages.dev  
+**Deployment URL:** https://1ea53fad.paas-ai-orchestration.pages.dev
+
+**GitHub Repository:** https://github.com/Estes786/Paas-AI-Orchestration
+
+### 🧪 Sandbox Development (PM2 + Wrangler)
+
+**Sandbox URL:** http://localhost:3000 (when running locally)
 
 ### Quick Test:
 ```bash
-# Get dashboard stats
-curl https://3000-i7xmse1enr65ml1esci5y-cc2fbc16.sandbox.novita.ai/api/stats
+# Test production deployment
+curl https://paas-ai-orchestration.pages.dev
+curl https://paas-ai-orchestration.pages.dev/api/stats
 
-# Get all accounts
-curl https://3000-i7xmse1enr65ml1esci5y-cc2fbc16.sandbox.novita.ai/api/accounts
-
-# Get all projects
-curl https://3000-i7xmse1enr65ml1esci5y-cc2fbc16.sandbox.novita.ai/api/projects
+# Test local sandbox
+curl http://localhost:3000/api/stats
+curl http://localhost:3000/api/accounts
+curl http://localhost:3000/api/projects
 ```
 
 ---
