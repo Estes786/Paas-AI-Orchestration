@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "paas-ai-orchestration",
+  "name": "paas-ai-orchestration-private",
   "compatibility_date": "2026-01-30",
   "pages_build_output_dir": "./dist",
   "compatibility_flags": [
@@ -9,8 +9,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "paas-ai-orchestrator-production",
-      "database_id": "ecbb7d1f-13a1-4167-9b80-679b6af1435d"
+      "database_name": "paas-private-production",
+      "database_id": "71ef89ef-6757-4796-ab4e-9fa6d62e5c85"
     }
   ]
 }
