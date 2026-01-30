@@ -71,7 +71,8 @@ THE MATH:
 
 ### 🧪 Sandbox Development (PM2 + Wrangler)
 
-**Sandbox URL:** http://localhost:3000 (when running locally)
+**Sandbox URL:** https://3000-i8nfv19t9mazesh958ext-2e1b9533.sandbox.novita.ai  
+**Local URL:** http://localhost:3000 (when running locally)
 
 ### Quick Test:
 ```bash
