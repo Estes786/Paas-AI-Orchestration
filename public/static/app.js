@@ -9,7 +9,8 @@ let state = {
   accounts: [],
   sessions: [],
   knowledge: [],
-  currentTab: 'dashboard'
+  currentTab: 'dashboard',
+  hfToken: localStorage.getItem('hf_token') || ''
 }
 
 // ============================================================================
@@ -381,6 +382,23 @@ function setupEventListeners() {
       downloadBriefing()
     })
   }
+  
+  // AI toggle checkbox
+  const aiToggle = document.getElementById('handoff-use-ai')
+  if (aiToggle) {
+    aiToggle.addEventListener('change', (e) => {
+      const tokenContainer = document.getElementById('hf-token-container')
+      if (tokenContainer) {
+        tokenContainer.style.display = e.target.checked ? 'block' : 'none'
+      }
+    })
+  }
+  
+  // Prefill HF token if exists
+  const hfTokenInput = document.getElementById('handoff-hf-token')
+  if (hfTokenInput && state.hfToken) {
+    hfTokenInput.value = state.hfToken
+  }
 }
 
 async function createProject() {
@@ -429,30 +447,98 @@ async function generateHandoff() {
   const context = document.getElementById('handoff-context').value
   const credits = document.getElementById('handoff-credits').value
   const fromAccountId = document.getElementById('handoff-from-account').value
+  const hfToken = document.getElementById('handoff-hf-token')?.value || state.hfToken
+  const useAI = document.getElementById('handoff-use-ai')?.checked
   
   if (!projectId || !context) {
     showAlert('error', 'Please fill in project and context')
     return
   }
   
+  // Show loading
+  const submitBtn = document.querySelector('#form-handoff button[type=submit]')
+  const originalBtnText = submitBtn.innerHTML
+  submitBtn.disabled = true
+  submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Generating...'
+  
   try {
-    const response = await axios.post('/api/handoff/compress', {
-      project_id: projectId,
-      context: context,
-      credits_used: credits,
-      from_account_id: fromAccountId
-    })
+    let response
     
-    if (response.data.success) {
-      const output = document.getElementById('handoff-output')
-      output.textContent = response.data.briefing
-      document.getElementById('handoff-result').classList.remove('hidden')
-      showAlert('success', 'Compressed briefing generated!')
+    if (useAI && hfToken) {
+      // Save token untuk future use
+      localStorage.setItem('hf_token', hfToken)
+      state.hfToken = hfToken
+      
+      // Parse conversation history dari context
+      const conversationHistory = parseConversationHistory(context)
+      
+      // Use AI-powered handoff
+      response = await axios.post('/api/ai/handoff', {
+        project_id: projectId,
+        conversation_history: conversationHistory,
+        hugging_face_token: hfToken,
+        relevant_docs: []
+      })
+      
+      if (response.data.success) {
+        const output = document.getElementById('handoff-output')
+        const aiData = response.data.data
+        
+        // Display comprehensive AI result
+        output.textContent = `${aiData.master_prompt}\n\n---\n\n${aiData.compressed_context}\n\n## 🎯 Next Steps\n${aiData.next_steps.map((s, i) => `${i+1}. ${s}`).join('\n')}${aiData.troubleshooting_notes ? '\n\n## ⚠️ Troubleshooting Notes\n' + aiData.troubleshooting_notes : ''}\n\n---\n*AI Confidence: ${Math.round(aiData.confidence * 100)}%*`
+        
+        document.getElementById('handoff-result').classList.remove('hidden')
+        showAlert('success', `✨ AI-powered handoff generated! (${Math.round(aiData.confidence * 100)}% confidence)`)
+      }
+    } else {
+      // Use basic compression
+      response = await axios.post('/api/handoff/compress', {
+        project_id: projectId,
+        context: context,
+        credits_used: credits,
+        from_account_id: fromAccountId
+      })
+      
+      if (response.data.success) {
+        const output = document.getElementById('handoff-output')
+        output.textContent = response.data.briefing
+        document.getElementById('handoff-result').classList.remove('hidden')
+        showAlert('success', 'Compressed briefing generated!')
+      }
     }
   } catch (error) {
     console.error('Error generating handoff:', error)
-    showAlert('error', 'Failed to generate briefing')
+    const errorMsg = error.response?.data?.error || 'Failed to generate briefing'
+    showAlert('error', errorMsg)
+  } finally {
+    // Reset button
+    submitBtn.disabled = false
+    submitBtn.innerHTML = originalBtnText
   }
+}
+
+// Parse conversation history from text
+function parseConversationHistory(text) {
+  const lines = text.split('\n')
+  const conversation = []
+  
+  lines.forEach(line => {
+    const userMatch = line.match(/^(?:User|Human|Me):\s*(.+)/i)
+    const aiMatch = line.match(/^(?:AI|Assistant|Bot|Claude|ChatGPT):\s*(.+)/i)
+    
+    if (userMatch) {
+      conversation.push({ role: 'user', content: userMatch[1].trim() })
+    } else if (aiMatch) {
+      conversation.push({ role: 'assistant', content: aiMatch[1].trim() })
+    }
+  })
+  
+  // If no structured conversation found, treat entire text as context
+  if (conversation.length === 0) {
+    conversation.push({ role: 'user', content: text })
+  }
+  
+  return conversation
 }
 
 function copyBriefing() {
