@@ -158,19 +158,66 @@ app.get('/', (c) => {
               </div>
             </div>
 
-            {/* Sessions Tab */}
+            {/* Sessions Tab - ENHANCED WITH SESSION ORCHESTRATION */}
             <div id="tab-sessions" class="tab-content">
+              {/* Session Orchestration Notice */}
+              <div class="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-4 mb-4">
+                <div class="flex items-start gap-3">
+                  <i class="fas fa-infinity text-green-600 text-2xl mt-1"></i>
+                  <div class="flex-1">
+                    <h4 class="font-bold text-green-900 mb-1">♾️ INFINITY GROWTH SESSION ORCHESTRATION</h4>
+                    <p class="text-sm text-green-800 mb-2">
+                      1 PROJECT = MULTI-SESSION orchestration with auto-handoff generation. 
+                      Setiap session baru auto-loads context dari session sebelumnya. ZERO context loss! 🚀
+                    </p>
+                    <div class="flex items-center gap-2 text-xs text-green-700">
+                      <span class="bg-green-100 px-2 py-1 rounded">✅ Auto-save conversations</span>
+                      <span class="bg-green-100 px-2 py-1 rounded">🔄 Auto-generate handoff</span>
+                      <span class="bg-green-100 px-2 py-1 rounded">♾️ Infinite continuity</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
               <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold">⏱️ Session History</h3>
+                <h3 class="text-xl font-bold">⏱️ Session Orchestration Hub</h3>
                 <div class="flex gap-2">
                   <select id="filter-project" class="border rounded-lg px-4 py-2">
                     <option value="">All Projects</option>
                   </select>
-                  <select id="filter-account" class="border rounded-lg px-4 py-2">
-                    <option value="">All Accounts</option>
-                  </select>
+                  <button id="btn-new-session" class="btn btn-primary">
+                    <i class="fas fa-plus mr-2"></i>New Session
+                  </button>
                 </div>
               </div>
+              
+              {/* Active Session Indicator */}
+              <div id="active-session-indicator" class="hidden bg-blue-50 border-l-4 border-blue-500 p-4 mb-4">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <div class="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+                    <div>
+                      <div class="font-bold text-blue-900">Session #<span id="active-session-number">--</span> Active</div>
+                      <div class="text-sm text-blue-700">Project: <span id="active-project-name">--</span></div>
+                    </div>
+                  </div>
+                  <div class="flex gap-2">
+                    <button id="btn-view-active-session" class="btn btn-secondary text-sm">
+                      <i class="fas fa-eye mr-1"></i>View Details
+                    </button>
+                    <button id="btn-complete-session" class="btn btn-primary text-sm">
+                      <i class="fas fa-check mr-1"></i>Complete Session
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Sessions Timeline View */}
+              <div id="sessions-timeline" class="mb-6">
+                {/* Populated by JavaScript */}
+              </div>
+              
+              {/* Sessions List */}
               <div id="sessions-list" class="space-y-4">
                 {/* Will be populated by JavaScript */}
               </div>
@@ -1066,6 +1113,307 @@ app.get('/api/ai/conversations/:project_id', async (c) => {
     return c.json({
       success: false,
       error: error.message || 'Failed to get conversations'
+    }, 500)
+  }
+})
+
+// ============================================================================
+// SESSION ORCHESTRATION - GAME CHANGER: MULTI-SESSION MANAGEMENT
+// ============================================================================
+
+/**
+ * 🔄 GET SESSION DETAILS WITH HANDOFF
+ * Get complete session info including previous handoff briefing
+ */
+app.get('/api/sessions/:session_id/detail', async (c) => {
+  try {
+    const { env } = c
+    const sessionId = c.req.param('session_id')
+    
+    // Get session details
+    const session = await env.DB.prepare(`
+      SELECT 
+        s.*,
+        p.name as project_name,
+        p.description as project_description,
+        a.account_name
+      FROM sessions s
+      JOIN projects p ON s.project_id = p.id
+      JOIN accounts a ON s.account_id = a.id
+      WHERE s.id = ?
+    `).bind(sessionId).first() as any
+    
+    if (!session) {
+      return c.json({
+        success: false,
+        error: 'Session not found'
+      }, 404)
+    }
+    
+    // Get previous session handoff
+    const previousHandoff = await env.DB.prepare(`
+      SELECT compressed_context, context_summary, created_at
+      FROM context_snapshots
+      WHERE session_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).bind(sessionId).first() as any
+    
+    // Get conversation history for this session
+    const conversations = await env.DB.prepare(`
+      SELECT role, content, timestamp, turn_number
+      FROM conversation_history
+      WHERE session_id = ?
+      ORDER BY turn_number ASC
+    `).bind(sessionId).all()
+    
+    return c.json({
+      success: true,
+      data: {
+        session,
+        previous_handoff: previousHandoff,
+        conversations: conversations.results
+      }
+    })
+    
+  } catch (error: any) {
+    console.error('Get Session Detail Error:', error)
+    return c.json({
+      success: false,
+      error: error.message || 'Failed to get session details'
+    }, 500)
+  }
+})
+
+/**
+ * 🎯 CREATE NEW SESSION WITH AUTO-LOAD HANDOFF
+ * Creates new session and loads previous session's handoff automatically
+ */
+app.post('/api/sessions/create-with-handoff', async (c) => {
+  try {
+    const { env } = c
+    const { project_id, account_id, objectives } = await c.req.json()
+    
+    if (!project_id || !account_id) {
+      return c.json({
+        success: false,
+        error: 'project_id and account_id are required'
+      }, 400)
+    }
+    
+    // Get next session number
+    const countResult = await env.DB.prepare(`
+      SELECT COUNT(*) as count FROM sessions WHERE project_id = ?
+    `).bind(project_id).first() as any
+    
+    const sessionNumber = (countResult?.count || 0) + 1
+    
+    // Create new session
+    const newSession = await env.DB.prepare(`
+      INSERT INTO sessions (project_id, account_id, session_number, objectives, status)
+      VALUES (?, ?, ?, ?, 'in_progress')
+    `).bind(project_id, account_id, sessionNumber, objectives || '').run()
+    
+    const sessionId = newSession.meta.last_row_id
+    
+    // Get previous session's handoff (if exists)
+    const previousHandoff = await env.DB.prepare(`
+      SELECT cs.compressed_context, cs.context_summary, s.session_number
+      FROM context_snapshots cs
+      JOIN sessions s ON cs.session_id = s.id
+      WHERE s.project_id = ? AND s.session_number = ?
+      ORDER BY cs.created_at DESC
+      LIMIT 1
+    `).bind(project_id, sessionNumber - 1).first() as any
+    
+    // Get project details
+    const project = await env.DB.prepare(`
+      SELECT name, description FROM projects WHERE id = ?
+    `).bind(project_id).first() as any
+    
+    return c.json({
+      success: true,
+      data: {
+        session_id: sessionId,
+        session_number: sessionNumber,
+        project_name: project?.name,
+        previous_handoff: previousHandoff,
+        message: previousHandoff 
+          ? `✨ Session #${sessionNumber} created! Previous handoff loaded.`
+          : `🎯 Session #${sessionNumber} created! (First session, no handoff yet)`
+      }
+    })
+    
+  } catch (error: any) {
+    console.error('Create Session Error:', error)
+    return c.json({
+      success: false,
+      error: error.message || 'Failed to create session'
+    }, 500)
+  }
+})
+
+/**
+ * ⚡ COMPLETE SESSION & AUTO-GENERATE HANDOFF
+ * Marks session as completed and automatically generates handoff for next session
+ */
+app.post('/api/sessions/:session_id/complete', async (c) => {
+  try {
+    const { env } = c
+    const sessionId = c.req.param('session_id')
+    const { 
+      credits_used, 
+      accomplishments, 
+      blockers, 
+      hugging_face_token,
+      auto_generate_handoff 
+    } = await c.req.json()
+    
+    // Update session as completed
+    await env.DB.prepare(`
+      UPDATE sessions 
+      SET 
+        status = 'completed',
+        credits_used = ?,
+        accomplishments = ?,
+        blockers = ?,
+        completed_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(
+      credits_used || 0,
+      accomplishments || '',
+      blockers || '',
+      sessionId
+    ).run()
+    
+    // Get session and project details
+    const session = await env.DB.prepare(`
+      SELECT s.*, p.name as project_name, p.description as project_description
+      FROM sessions s
+      JOIN projects p ON s.project_id = p.id
+      WHERE s.id = ?
+    `).bind(sessionId).first() as any
+    
+    let handoffGenerated = false
+    let masterPrompt = null
+    
+    // Auto-generate handoff if requested and token provided
+    if (auto_generate_handoff && hugging_face_token) {
+      try {
+        // Get conversation history
+        const conversations = await env.DB.prepare(`
+          SELECT role, content
+          FROM conversation_history
+          WHERE session_id = ?
+          ORDER BY turn_number ASC
+        `).bind(sessionId).all()
+        
+        // Build project context
+        const projectContext: ProjectContext = {
+          projectId: session.project_id,
+          projectName: session.project_name,
+          projectDescription: session.project_description || '',
+          conversationHistory: conversations.results as ConversationTurn[],
+          sessionNumber: session.session_number,
+          lastAccomplishments: accomplishments,
+          currentBlockers: blockers
+        }
+        
+        // Generate AI handoff
+        const aiResult = await generateAIHandoff(projectContext, {
+          apiKey: hugging_face_token
+        })
+        
+        // Store handoff in database
+        await env.DB.prepare(`
+          INSERT INTO context_snapshots 
+          (session_id, snapshot_type, compressed_context, context_summary)
+          VALUES (?, 'handoff', ?, ?)
+        `).bind(
+          sessionId,
+          aiResult.masterPrompt,
+          `AI-generated handoff for Session #${session.session_number} (confidence: ${aiResult.confidence})`
+        ).run()
+        
+        handoffGenerated = true
+        masterPrompt = aiResult.masterPrompt
+        
+      } catch (error: any) {
+        console.error('Auto-generate handoff error:', error)
+        // Continue even if handoff generation fails
+      }
+    }
+    
+    // Update project stats
+    await env.DB.prepare(`
+      UPDATE projects 
+      SET 
+        total_credits_used = total_credits_used + ?,
+        total_sessions = total_sessions + 1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(credits_used || 0, session.project_id).run()
+    
+    return c.json({
+      success: true,
+      data: {
+        session_id: sessionId,
+        session_number: session.session_number,
+        handoff_generated: handoffGenerated,
+        master_prompt: masterPrompt,
+        message: handoffGenerated
+          ? `✅ Session #${session.session_number} completed! Handoff generated for next session.`
+          : `✅ Session #${session.session_number} completed!`
+      }
+    })
+    
+  } catch (error: any) {
+    console.error('Complete Session Error:', error)
+    return c.json({
+      success: false,
+      error: error.message || 'Failed to complete session'
+    }, 500)
+  }
+})
+
+/**
+ * 📊 GET PROJECT SESSIONS TIMELINE
+ * Get all sessions for a project with their handoffs
+ */
+app.get('/api/projects/:project_id/sessions-timeline', async (c) => {
+  try {
+    const { env } = c
+    const projectId = c.req.param('project_id')
+    
+    const sessions = await env.DB.prepare(`
+      SELECT 
+        s.id,
+        s.session_number,
+        s.credits_used,
+        s.status,
+        s.accomplishments,
+        s.blockers,
+        s.started_at,
+        s.completed_at,
+        a.account_name,
+        (SELECT COUNT(*) FROM conversation_history WHERE session_id = s.id) as conversation_count,
+        (SELECT COUNT(*) FROM context_snapshots WHERE session_id = s.id) as handoff_count
+      FROM sessions s
+      JOIN accounts a ON s.account_id = a.id
+      WHERE s.project_id = ?
+      ORDER BY s.session_number ASC
+    `).bind(projectId).all()
+    
+    return c.json({
+      success: true,
+      data: sessions.results
+    })
+    
+  } catch (error: any) {
+    console.error('Get Sessions Timeline Error:', error)
+    return c.json({
+      success: false,
+      error: error.message || 'Failed to get sessions timeline'
     }, 500)
   }
 })
