@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
 import { renderer } from './renderer'
+import { generateAIHandoff, generateTroubleshootingPrompt, type ProjectContext } from './ai-handoff'
 
 type Bindings = {
   DB: D1Database
@@ -700,6 +701,315 @@ app.post('/api/private/export-project', async (c) => {
     success: true,
     data: exportData
   })
+})
+
+// ============================================================================
+// AI-POWERED HANDOFF - GAME CHANGER FEATURES
+// ============================================================================
+
+/**
+ * 🔥 AI-POWERED HANDOFF GENERATION
+ * Uses Hugging Face LLM untuk generate master prompt architect
+ */
+app.post('/api/ai/handoff', async (c) => {
+  try {
+    const { project_id, conversation_history, hugging_face_token, relevant_docs } = await c.req.json()
+    const { env } = c
+    
+    if (!hugging_face_token) {
+      return c.json({
+        success: false,
+        error: 'Hugging Face API token required',
+        message: 'Provide your HF token untuk enable AI-powered handoff'
+      }, 400)
+    }
+    
+    // Get project details
+    const project = await env.DB.prepare(`
+      SELECT id, name, description, status FROM projects WHERE id = ?
+    `).bind(project_id).first() as any
+    
+    if (!project) {
+      return c.json({
+        success: false,
+        error: 'Project not found'
+      }, 404)
+    }
+    
+    // Get latest session for context
+    const latestSession = await env.DB.prepare(`
+      SELECT session_number, accomplishments, blockers 
+      FROM sessions 
+      WHERE project_id = ? 
+      ORDER BY started_at DESC 
+      LIMIT 1
+    `).bind(project_id).first() as any
+    
+    // Get conversation history from database if not provided
+    let conversationTurns = conversation_history || []
+    
+    if (!conversation_history && latestSession) {
+      const dbConversations = await env.DB.prepare(`
+        SELECT role, content, timestamp
+        FROM conversation_history
+        WHERE session_id = (
+          SELECT id FROM sessions 
+          WHERE project_id = ? 
+          ORDER BY started_at DESC 
+          LIMIT 1
+        )
+        ORDER BY turn_number ASC
+      `).bind(project_id).all()
+      
+      conversationTurns = dbConversations.results
+    }
+    
+    // Build project context for AI
+    const projectContext: ProjectContext = {
+      projectId: project.id,
+      projectName: project.name,
+      projectDescription: project.description || '',
+      conversationHistory: conversationTurns,
+      sessionNumber: (latestSession?.session_number || 0) + 1,
+      lastAccomplishments: latestSession?.accomplishments,
+      currentBlockers: latestSession?.blockers,
+      relevantDocs: relevant_docs || []
+    }
+    
+    // Generate AI-powered handoff
+    const aiResult = await generateAIHandoff(projectContext, {
+      apiKey: hugging_face_token
+    })
+    
+    // Store compressed context in database
+    if (latestSession) {
+      await env.DB.prepare(`
+        INSERT INTO context_snapshots 
+        (session_id, snapshot_type, compressed_context, context_summary)
+        VALUES (
+          (SELECT id FROM sessions WHERE project_id = ? ORDER BY started_at DESC LIMIT 1),
+          'handoff',
+          ?,
+          ?
+        )
+      `).bind(
+        project_id,
+        aiResult.masterPrompt,
+        `AI-generated handoff (confidence: ${aiResult.confidence})`
+      ).run()
+    }
+    
+    return c.json({
+      success: true,
+      data: {
+        master_prompt: aiResult.masterPrompt,
+        compressed_context: aiResult.compressedContext,
+        next_steps: aiResult.nextSteps,
+        troubleshooting_notes: aiResult.troubleshootingNotes,
+        confidence: aiResult.confidence,
+        project: project.name,
+        session: projectContext.sessionNumber
+      },
+      message: `✨ AI-powered handoff generated (${Math.round(aiResult.confidence * 100)}% confidence)`
+    })
+    
+  } catch (error: any) {
+    console.error('AI Handoff Error:', error)
+    return c.json({
+      success: false,
+      error: error.message || 'Failed to generate AI handoff',
+      suggestion: 'Check your Hugging Face token dan try again'
+    }, 500)
+  }
+})
+
+/**
+ * 🔧 AI-POWERED TROUBLESHOOTING
+ * Generate fix & resolve prompts dari error context
+ */
+app.post('/api/ai/troubleshoot', async (c) => {
+  try {
+    const { 
+      project_id, 
+      error_message, 
+      stack_trace, 
+      code_snippet,
+      hugging_face_token 
+    } = await c.req.json()
+    const { env } = c
+    
+    if (!hugging_face_token) {
+      return c.json({
+        success: false,
+        error: 'Hugging Face API token required'
+      }, 400)
+    }
+    
+    if (!error_message) {
+      return c.json({
+        success: false,
+        error: 'error_message is required'
+      }, 400)
+    }
+    
+    // Get project context
+    const project = await env.DB.prepare(`
+      SELECT id, name, description FROM projects WHERE id = ?
+    `).bind(project_id).first() as any
+    
+    if (!project) {
+      return c.json({
+        success: false,
+        error: 'Project not found'
+      }, 404)
+    }
+    
+    const projectContext: ProjectContext = {
+      projectId: project.id,
+      projectName: project.name,
+      projectDescription: project.description || '',
+      conversationHistory: [],
+      sessionNumber: 0
+    }
+    
+    // Generate troubleshooting prompt
+    const troubleshootingPrompt = await generateTroubleshootingPrompt(
+      {
+        errorMessage: error_message,
+        stackTrace: stack_trace,
+        codeSnippet: code_snippet,
+        environment: 'Cloudflare Pages + Hono + D1'
+      },
+      projectContext,
+      {
+        apiKey: hugging_face_token
+      }
+    )
+    
+    return c.json({
+      success: true,
+      data: {
+        troubleshooting_prompt: troubleshootingPrompt,
+        error_context: error_message
+      },
+      message: '🔧 Troubleshooting prompt generated'
+    })
+    
+  } catch (error: any) {
+    console.error('Troubleshooting Error:', error)
+    return c.json({
+      success: false,
+      error: error.message || 'Failed to generate troubleshooting prompt'
+    }, 500)
+  }
+})
+
+/**
+ * 💾 SAVE CONVERSATION TO DATABASE
+ * Store conversation history untuk future reference
+ */
+app.post('/api/ai/save-conversation', async (c) => {
+  try {
+    const { project_id, account_id, conversation } = await c.req.json()
+    const { env } = c
+    
+    if (!conversation || conversation.length === 0) {
+      return c.json({
+        success: false,
+        error: 'conversation array is required'
+      }, 400)
+    }
+    
+    // Get or create current session
+    let session = await env.DB.prepare(`
+      SELECT id FROM sessions 
+      WHERE project_id = ? AND account_id = ? AND status = 'in_progress'
+      ORDER BY started_at DESC 
+      LIMIT 1
+    `).bind(project_id, account_id).first() as any
+    
+    if (!session) {
+      // Create new session
+      const sessionNumber = await env.DB.prepare(`
+        SELECT COUNT(*) as count FROM sessions WHERE project_id = ?
+      `).bind(project_id).first() as any
+      
+      const newSession = await env.DB.prepare(`
+        INSERT INTO sessions (project_id, account_id, session_number, status)
+        VALUES (?, ?, ?, 'in_progress')
+      `).bind(project_id, account_id, (sessionNumber?.count || 0) + 1).run()
+      
+      session = { id: newSession.meta.last_row_id }
+    }
+    
+    // Save conversation turns
+    for (let i = 0; i < conversation.length; i++) {
+      const turn = conversation[i]
+      await env.DB.prepare(`
+        INSERT INTO conversation_history 
+        (session_id, turn_number, role, content, timestamp)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `).bind(
+        session.id,
+        i + 1,
+        turn.role,
+        turn.content
+      ).run()
+    }
+    
+    return c.json({
+      success: true,
+      message: `Saved ${conversation.length} conversation turns`,
+      session_id: session.id
+    })
+    
+  } catch (error: any) {
+    console.error('Save Conversation Error:', error)
+    return c.json({
+      success: false,
+      error: error.message || 'Failed to save conversation'
+    }, 500)
+  }
+})
+
+/**
+ * 📚 GET CONVERSATION HISTORY
+ * Retrieve stored conversations untuk context
+ */
+app.get('/api/ai/conversations/:project_id', async (c) => {
+  try {
+    const { env } = c
+    const projectId = c.req.param('project_id')
+    const limit = c.req.query('limit') || '50'
+    
+    const conversations = await env.DB.prepare(`
+      SELECT 
+        ch.id,
+        ch.turn_number,
+        ch.role,
+        ch.content,
+        ch.timestamp,
+        s.session_number,
+        s.id as session_id
+      FROM conversation_history ch
+      JOIN sessions s ON ch.session_id = s.id
+      WHERE s.project_id = ?
+      ORDER BY ch.timestamp DESC
+      LIMIT ?
+    `).bind(projectId, parseInt(limit)).all()
+    
+    return c.json({
+      success: true,
+      data: conversations.results
+    })
+    
+  } catch (error: any) {
+    console.error('Get Conversations Error:', error)
+    return c.json({
+      success: false,
+      error: error.message || 'Failed to get conversations'
+    }, 500)
+  }
 })
 
 export default app
